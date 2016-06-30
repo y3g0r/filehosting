@@ -1,0 +1,5 @@
+.idea
+__pycache__
+lib/closure_table_sqlite/categories.db
+lib/closure_table_sqlite/people.db
+data/*.db
