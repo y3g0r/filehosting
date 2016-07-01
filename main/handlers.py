@@ -59,7 +59,7 @@ class DirHandler(BaseHandler):
             self.fs.create_folder()
             self.add_callback(self.db.folder_created, self.fs.updates)
             self.write(self.fs.updates)
-        except FileExistsError:
+        except (FileExistsError, NotADirectoryError):
             self.send_error(409)
         except PermissionError:
             self.send_error(403)
@@ -88,7 +88,10 @@ class FileHandler(BaseHandler, tornado.web.StaticFileHandler):
     def put(self, _):
         """Called when all chunks are received"""
         # TODO: add update tree
-        self.fs.open_file()
-        self.fs.close_file()
-        self.add_callback(self.db.file_uploaded, self.fs.updates)
-        self.write(self.fs.updates)
+        try:
+            self.fs.open_file()
+            self.fs.close_file()
+            self.add_callback(self.db.file_uploaded, self.fs.updates)
+            self.write(self.fs.updates)
+        except FileExistsError:
+            self.send_error(409)
