@@ -1,4 +1,5 @@
 import os
+import tempfile
 import urllib.parse
 from collections import OrderedDict
 import datetime as d
@@ -49,6 +50,7 @@ class Path:
 
 class Worker:
     MODIFIED_DATETIME_FORMAT = "%a, %d %b %Y %H:%M:%S"
+    TEMP_FILE_DIR = '/tmp'
 
     def __init__(self, uri, openfile=False):
         self.path = Path(uri)
@@ -83,11 +85,14 @@ class Worker:
     def open_file(self):
         try:
             if not self._fo:
-                self._fo = open(self.path.abspath, "xb")
+                open(self.path.abspath)
+                self._fo = tempfile.NamedTemporaryFile(
+                    'wb', dir=Worker.TEMP_FILE_DIR, delete=False)
         except FileNotFoundError:
             self.path._create_dir_for_file = True
             self.create_folder()
-            self._fo = open(self.path.abspath, "xb")
+            self._fo = tempfile.NamedTemporaryFile(
+                'wb', dir=Worker.TEMP_FILE_DIR, delete=False)
 
     def save_file_chunk(self, chunk):
         if not self._fo:
@@ -95,8 +100,13 @@ class Worker:
         self._fo.write(chunk)
 
     def close_file(self):
+
         if self._fo is not None:
+            tempname = self._fo.name
             self._fo.close()
+            try:
+                os.rename(tempname, self.path.abspath)
+            except FileNotFoundError: pass
 
     def create_folder(self):
         """Create folder, return path where was update"""
