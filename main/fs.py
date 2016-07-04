@@ -8,7 +8,7 @@ from pprint import pprint
 from tornado.options import options
 
 import utils
-
+from pathlib import PurePath
 
 class Path:
     def __init__(self, uri="", abspath=""):
@@ -83,30 +83,32 @@ class Worker:
         return self.path.work_with_file()
 
     def open_file(self):
-        try:
-            if not self._fo:
-                open(self.path.abspath)
-                self._fo = tempfile.NamedTemporaryFile(
-                    'wb', dir=Worker.TEMP_FILE_DIR, delete=False)
-        except FileNotFoundError:
-            self.path._create_dir_for_file = True
-            self.create_folder()
+        if not self._fo:
+            if os.path.isfile(self.path.abspath):
+                raise FileExistsError
             self._fo = tempfile.NamedTemporaryFile(
                 'wb', dir=Worker.TEMP_FILE_DIR, delete=False)
+
 
     def save_file_chunk(self, chunk):
         if not self._fo:
             self.open_file()
         self._fo.write(chunk)
 
-    def close_file(self):
+    def close_file(self, interrupted=False):
 
         if self._fo is not None:
             tempname = self._fo.name
             self._fo.close()
-            try:
-                os.rename(tempname, self.path.abspath)
-            except FileNotFoundError: pass
+            if not interrupted:
+                try:
+                    self.path._create_dir_for_file = True
+                    try:
+                        self.create_folder()
+                    except FileExistsError: pass
+                    finally:
+                        os.rename(tempname, self.path.abspath)
+                except FileNotFoundError: pass
 
     def create_folder(self):
         """Create folder, return path where was update"""
@@ -134,7 +136,7 @@ class Worker:
 
     def mkdir_p(self):
         prev = self.path.base_dir
-        for cur in Worker.iterate_path(self.path.create_dir_path, base=self.path.base_dir):
+        for cur in Worker.iterate_path(self.path.create_dir_path, root=self.path.base_dir):
             if os.path.isdir(cur):
                 prev = cur
             else:
@@ -142,32 +144,31 @@ class Worker:
                 break
         return prev
 
-    @staticmethod
-    def iterate_path(path, base=None, reverse=True):
-        """
-        >>> [print(p) for p in iterate_path('/a/b/c')]
-        '/'
-        '/a'
-        '/a/b'
-        '/a/b/c'
-        :param a:
-        :param b:
-        :return:
-        """
-        if not base:
-            base = "/"
-        path = path.rstrip(os.path.sep)
-        base = base.rstrip(os.path.sep)
 
-        def iterator():
-            nonlocal path
-            nonlocal base
-            while base in path:
+    def lock_components(self):
+        """Return paths based on request uri, that has to be checked before performing writing ops"""
+        for path in Worker.iterate_path(self.path.public_path):
+            if path != "/":
                 yield path
-                if path == base: break
-                path = os.path.dirname(path)
 
-        return iterator() if reverse else reversed(list(iterator()))
+        yield (self.path.public_path + "/") if self.path.work_with_file() else (self.path.public_path.rstrip("/"))
+
+    @staticmethod
+    def iterate_path(top, root=None, trailing_slash=False, from_root_to_top=True):
+        if not root:
+            root = "/"
+        if not all(map(os.path.isabs, (top, root))):
+            raise ValueError("subfolder and root must start with '/'")
+        if top.startswith(root):
+            members = [top] + list(map(str, PurePath(top).parents))
+            if not from_root_to_top:
+                members = reversed(members)
+
+            for member in members:
+                if root not in member: break
+                yield member + "/" if member not in (root, top) and trailing_slash else member
+
+
 
     def get_tree(self, full_tree=False):
         import stat

@@ -16,6 +16,14 @@ def parse_config_file():
     define('storage-path',
            default=config.get('Main', 'storage_path', fallback='/tmp/hosting_app'),
            help='path where to store all the folders and files')
+    define('locking',
+           default=True, type=bool,
+           help='Enable this option to prevent system from conflicts with multiple uploads from multiple users'
+                'When the file is uploaded it is stored not in the final location, but in the /tmp dir,'
+                'in case if peed disconnects or something goes wrong the file simply deleted with no damage to the system.'
+                'It also hiding when doing "GET folder" requests. Imagine that you upload big file to the /a/b/c/d/huge.file'
+                'Without locking one could simply create a tiny file in /a/b and this would conflict with huge file when'
+                'upload is finished, so huge file will be simply discarded. To prevent this behavior enable locking')
     define('file-size-limit',
            default=int(config.get('Main', 'file_size_limit', fallback=4096)),
            type=int,

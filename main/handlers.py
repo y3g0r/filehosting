@@ -3,6 +3,7 @@ import logging
 
 import tornado.web
 import tornado.ioloop
+from tornado.options import options
 
 import fs
 import db
@@ -12,6 +13,17 @@ class BaseHandler(tornado.web.RequestHandler):
         """Initialize all resources"""
         self.log = logging.getLogger("tornado.general")
         self.fs = fs.Worker(self.request.uri)
+        if options.locking:
+            self.globlocks = self.application.locks
+            self.locks = set()
+            for path in self.fs.lock_components():
+                if path in self.globlocks:
+                    self.send_error(409, msg="Upload is conflicting with another pending upload on {}".format(path))
+                    break
+            self.locks = set(fs.Worker.iterate_path(self.fs.path.public_path))
+            self.locks.remove("/")
+            for path in self.locks:
+                self.globlocks[path] = 1
 
         self.db = db
 
@@ -44,6 +56,11 @@ class BaseHandler(tornado.web.RequestHandler):
     def on_finish(self):
         """Add some logging, release resources"""
         self.fs.close_file()
+        if self.locks:
+            for path in self.locks:
+                self.globlocks[path] -= 1
+                if self.globlocks[path] == 0:
+                    del self.globlocks[path]
 
     def add_callback(self, callback, *a, **kw):
         tornado.ioloop.IOLoop.instance().add_callback(callback, *a, **kw)
@@ -82,8 +99,6 @@ class FileHandler(BaseHandler, tornado.web.StaticFileHandler):
             self.send_error(409)
         except NotADirectoryError:
             self.send_error(409)
-        except IOError:
-            self.send_error(500)
 
     def put(self, _):
         """Called when all chunks are received"""
@@ -95,3 +110,7 @@ class FileHandler(BaseHandler, tornado.web.StaticFileHandler):
             self.write(self.fs.updates)
         except FileExistsError:
             self.send_error(409)
+
+    def on_connection_close(self):
+        self.fs.close_file(interrupted=True)
+
